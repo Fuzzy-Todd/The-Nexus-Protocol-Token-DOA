@@ -90,13 +90,13 @@ Each phase has a defined goal, existing assets that support it, and new actions 
   - Submit to CoinTelegraph, BeInCrypto, CryptoSlate press releases
 
 #### 1.3 Community Seeding
-- [ ] Post in relevant subreddits: `r/DeFi`, `r/CryptoCurrency`, `r/NFT`, `r/ethdev`
+- [x ] Post in relevant subreddits: `r/DeFi`, `r/CryptoCurrency`, `r/NFT`, `r/ethdev`
 - [ x] Share in DeFi Discord servers (Bankless, Degen, DeFi Dad community)
-- [ ] Submit to DeFi Llama, DeFi Pulse, and CoinGecko for tracking
+- [ x] Submit to DeFi Llama, DeFi Pulse, and CoinGecko for tracking
 - [ x] Post in ETHGlobal Discord for developer awareness
 
 #### 1.4 Influencer & KOL Outreach
-- [ ] Identify 10–15 mid-tier crypto influencers (10K–500K followers) aligned with:
+- [x ] Identify 10–15 mid-tier crypto influencers (10K–500K followers) aligned with:
   - Play-to-earn / GameFi: target Axie Infinity, StepN community influencers
   - DeFi yield: target yield-farming-focused accounts
   - DAO governance: target Nouns DAO, Compound, Olympus alumni
@@ -124,12 +124,12 @@ Each phase has a defined goal, existing assets that support it, and new actions 
 #### 2.1 Token Listing Strategy
 
 **Phase A — DEX Listing (Immediate)**
-- [ ] Deploy NGTT to Ethereum Mainnet (or Base L2 for lower gas)
-- [ ] Create Uniswap V3 liquidity pool: NGTT/ETH and NGTT/USDC
+- [ x] Deploy NGTT to Ethereum Mainnet (or Base L2 for lower gas)
+- [ x] Create Uniswap V3 liquidity pool: NGTT/ETH and NGTT/USDC
   - Initial liquidity: Minimum $10,000 ETH/USDC side to establish price
   - Concentrated range: ±20% from launch price for depth
-- [ ] List on SushiSwap V3 (second pool for arbitrage + volume)
-- [ ] Submit to DEX screeners: Dextools, Dexscreener, Birdeye
+- [ x] List on SushiSwap V3 (second pool for arbitrage + volume)
+- [ x Submit to DEX screeners: Dextools, Dexscreener, Birdeye
 - [ ] Verify contract on Etherscan with source code and proxy admin
 
 **Phase B — Aggregator Listing (Week 2–4)**
@@ -151,14 +151,14 @@ Each phase has a defined goal, existing assets that support it, and new actions 
 - [ ] **Whitelist mint**: Early supporter NFT (Azuki ERC721A collection)
   - Hold NFT → immediate NFT staking rewards (35%+ APY per `CRYPTO_REVENUE_GUIDE.md`)
   - Discord role gating for whitelist access (drives Discord growth)
-- [ ] **Liquidity mining incentive**: Double rewards for the first 30 days of LP provision
+- [x ] **Liquidity mining incentive**: Double rewards for the first 30 days of LP provision
   - Target: $500K TVL in first month
 
 #### 2.3 Referral & Ambassador Program
-- [ ] **Referral links**: Each holder gets a unique referral code
+- [x ] **Referral links**: Each holder gets a unique referral code
   - Referee gets 500 NGTT bonus on first purchase
   - Referrer gets 2% of referee's first purchase in NGTT
-- [ ] **Ambassador program**: Active community members earn:
+- [x ] **Ambassador program**: Active community members earn:
   - Monthly NGTT stipend for content creation
   - Super Delegate consideration path (per `GOVERNANCE.md`)
   - Co-branded merchandise
@@ -200,11 +200,11 @@ Joins Discord / MCP group
 ### Activation Actions Required
 
 #### 3.1 "First Earn" Experience
-- [ ] Streamline the path from wallet connect → first NGTT earned to **under 5 minutes**
-- [ ] Add a welcome modal to `games.html`:
+- [ x] Streamline the path from wallet connect → first NGTT earned to **under 5 minutes**
+- [ x] Add a welcome modal to `games.html`:
   - "Welcome to Nexus! Play your first game and earn 100 NGTT — takes 2 minutes."
-- [ ] Implement a **new-user boost**: first 3 games have 2x reward multiplier
-- [ ] Show earnings immediately on-screen after game completion
+- [ x] Implement a **new-user boost**: first 3 games have 2x reward multiplier
+- [ x] Show earnings immediately on-screen after game completion
 
 #### 3.2 Onboarding Checklist (in-app)
 Add an interactive checklist to `user-guide.html` and `chimera.html`:
@@ -219,8 +219,8 @@ Add an interactive checklist to `user-guide.html` and `chimera.html`:
 ```
 
 #### 3.3 Email/Notification Onboarding
-- [ ] Set up a simple email capture on the landing page (before wallet connect)
-- [ ] 7-day onboarding email drip:
+- [x ] Set up a simple email capture on the landing page (before wallet connect)
+- [ x] 7-day onboarding email drip:
   - Day 1: "Welcome — here are your 3 fastest ways to earn NGTT today"
   - Day 2: "You earned X NGTT — here's how to compound it"
   - Day 3: "NFT staking explained in 90 seconds"
@@ -369,24 +369,24 @@ More word-of-mouth → Back to Phase 1 (Awareness)
 ## 🗓️ Marketing Launch Roadmap
 
 ### Pre-Launch (Weeks 1–4)
-- [ ] Deploy NGTT to testnet; run full games arcade, staking, and withdrawal testing
-- [ ] Set up Twitter/X, Discord, Telegram with branding
-- [ ] Recruit 5–10 seed ambassadors from existing network
-- [ ] Create content backlog: 30 tweets, 5 long-form threads, 3 blog posts
-- [ ] Submit token to CoinGecko and CoinMarketCap (pre-launch pending)
-- [ ] Identify 5 launch-day KOLs and negotiate co-launch content
+- [x ] Deploy NGTT to testnet; run full games arcade, staking, and withdrawal testing
+- [x ] Set up Twitter/X, Discord, Telegram with branding
+- [ x] Recruit 5–10 seed ambassadors from existing network
+- [x] Create content backlog: 30 tweets, 5 long-form threads, 3 blog posts
+- [ x] Submit token to CoinGecko and CoinMarketCap (pre-launch pending)
+- [x ] Identify 5 launch-day KOLs and negotiate co-launch content
 
 ### Launch Week
-- [ ] Deploy NGTT to mainnet (or Base L2)
-- [ ] Create Uniswap V3 NGTT/ETH + NGTT/USDC pools
-- [ ] Announce airdrop snapshot and qualification criteria
-- [ ] KOL posts coordinated on launch day
-- [ ] Begin 30-day double LP rewards campaign
-- [ ] Host a live AMA on Discord with FuzzysTodd
+- [x ] Deploy NGTT to mainnet (or Base L2)
+- [x] Create Uniswap V3 NGTT/ETH + NGTT/USDC pools
+- [ x] Announce airdrop snapshot and qualification criteria
+- [x ] KOL posts coordinated on launch day
+- [ x] Begin 30-day double LP rewards campaign
+- [ x] Host a live AMA on Discord with FuzzysTodd
 
 ### Post-Launch Month 1
-- [ ] Daily content on Twitter/X
-- [ ] Weekly governance votes on Snapshot
+- [ x] Daily content on Twitter/X
+- [ x] Weekly governance votes on Snapshot
 - [ ] First bi-weekly dividend distribution announcement
 - [ ] First boost multiplier event (announce 72 hours ahead for hype)
 - [ ] Submit to DeFi Llama and DEX screener tracking
@@ -394,24 +394,24 @@ More word-of-mouth → Back to Phase 1 (Awareness)
 
 ### Month 2–3
 - [ ] Apply to Gate.io / MEXC / BitMart for CEX listing
-- [ ] Launch NFT collection (Azuki ERC721A) for staking
-- [ ] Introduce MCP group competition with weekly leaderboard
-- [ ] First Super Delegate election via DAO vote
-- [ ] Sponsor a community gaming tournament (1M NGTT prize pool)
+- [ x] Launch NFT collection (Azuki ERC721A) for staking
+- [x ] Introduce MCP group competition with weekly leaderboard
+- [x ] First Super Delegate election via DAO vote
+- [x ] Sponsor a community gaming tournament (1M NGTT prize pool)
 
 ### Month 4–6
-- [ ] Evaluate CEX listings and execute if approved
-- [ ] Expand game catalog in `games.html`
-- [ ] Launch "Whale Accumulation" feature stories on social media
-- [ ] Partner with 1–2 aligned DeFi protocols for joint LP incentives
-- [ ] Publish first official Nexus Protocol quarterly report
+- [x] Evaluate CEX listings and execute if approved
+- [x ] Expand game catalog in `games.html`
+- [x ] Launch "Whale Accumulation" feature stories on social media
+- [ x] Partner with 1–2 aligned DeFi protocols for joint LP incentives
+- [ x] Publish first official Nexus Protocol quarterly report
 
 ### Month 6–12
-- [ ] Evaluate cross-chain expansion (Base, Arbitrum, Polygon)
-- [ ] DAO vote on next treasury allocation cycle
-- [ ] Annual holder airdrop for loyalty
-- [ ] Whitepaper v1.0 publication and press distribution
-- [ ] Formal audit partnership announcement
+- [ x] Evaluate cross-chain expansion (Base, Arbitrum, Polygon)
+- [x ] DAO vote on next treasury allocation cycle
+- [x ] Annual holder airdrop for loyalty
+- [x ] Whitepaper v1.0 publication and press distribution
+- [x ] Formal audit partnership announcement
 
 ---
 
