@@ -64,7 +64,7 @@ Each phase has a defined goal, existing assets that support it, and new actions 
   - Bio: "Nexus Protocol | NGTT Token | Play-to-Earn | DeFi | DAO Governance | 10 revenue streams 🎮⚡"
   - Pin the best revenue highlights from `CRYPTO_REVENUE_GUIDE.md`
   - Post daily: game mechanics, revenue tips, governance updates, NGTT metrics
-- [ ] **Discord Server** — Official Nexus Protocol Discord
+- [x ] **Discord Server** — Official Nexus Protocol Discord
   - Channels: `#announcements`, `#general`, `#ngtt-token`, `#gaming`, `#nft-staking`, `#governance`, `#dev-chat`
   - Bot integrations: MEE6 (moderation), Collab.Land (token-gating premium channels)
   - Token-gated VIP channel: 100,000+ NGTT holders
@@ -76,11 +76,11 @@ Each phase has a defined goal, existing assets that support it, and new actions 
   - Enable GitHub Discussions for community Q&A
 
 #### 1.2 Content Marketing
-- [ ] **Thread-style breakdowns** on Twitter/X:
+- [ x] **Thread-style breakdowns** on Twitter/X:
   - "How NGTT's 7 age-group game system works (and why it matters)"
   - "10 ways to earn with Nexus Protocol — a complete breakdown"
   - "What makes Game Theory tokens different from every other DeFi token"
-- [ ] **Short-form video content**:
+- [ x] **Short-form video content**:
   - 60-second explainers for TikTok/YouTube Shorts
   - "How I earned my first NGTT tokens in under 10 minutes"
   - Screencasts of the games arcade, withdrawal manager, and Web3 directory
@@ -91,17 +91,17 @@ Each phase has a defined goal, existing assets that support it, and new actions 
 
 #### 1.3 Community Seeding
 - [ ] Post in relevant subreddits: `r/DeFi`, `r/CryptoCurrency`, `r/NFT`, `r/ethdev`
-- [ ] Share in DeFi Discord servers (Bankless, Degen, DeFi Dad community)
+- [ x] Share in DeFi Discord servers (Bankless, Degen, DeFi Dad community)
 - [ ] Submit to DeFi Llama, DeFi Pulse, and CoinGecko for tracking
-- [ ] Post in ETHGlobal Discord for developer awareness
+- [ x] Post in ETHGlobal Discord for developer awareness
 
 #### 1.4 Influencer & KOL Outreach
 - [ ] Identify 10–15 mid-tier crypto influencers (10K–500K followers) aligned with:
   - Play-to-earn / GameFi: target Axie Infinity, StepN community influencers
   - DeFi yield: target yield-farming-focused accounts
   - DAO governance: target Nouns DAO, Compound, Olympus alumni
-- [ ] Offer: early NGTT allocation, co-created content, revenue-sharing via MCP group membership
-- [ ] KOL compensation structure: paid in NGTT (aligns incentives)
+- [ x] Offer: early NGTT allocation, co-created content, revenue-sharing via MCP group membership
+- [x] KOL compensation structure: paid in NGTT (aligns incentives)
 
 ---
 
@@ -228,10 +228,10 @@ Add an interactive checklist to `user-guide.html` and `chimera.html`:
   - Day 7: "Week 1 summary — here's your projected annual income"
 
 #### 3.4 Community Welcome Flow (Discord)
-- [ ] Auto-DM new members:
+- [ x] Auto-DM new members:
   - "Welcome to Nexus Protocol! Start here → [user-guide link]"
   - "Get your first 500 NGTT free by completing the onboarding quiz in #get-started"
-- [ ] `#newcomer-help` channel staffed by ambassadors 24/7
+- [ x] `#newcomer-help` channel staffed by ambassadors 24/7
 
 ---
 
