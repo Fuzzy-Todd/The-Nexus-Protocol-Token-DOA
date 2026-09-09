@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Nexus Protocol Token DAO - Governance Metrics Schema",
+  "description": "Scoring and health metrics for DAO governance: proposals, execution, participation, and policy compliance.",
+  "type": "object",
+
+  "properties": {
+    "snapshot_id": {
+      "type": "string",
+      "description": "Unique identifier for this governance metrics snapshot."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time at which this governance snapshot was taken."
+    },
+
+    "proposal_quality": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Average quality score of proposals in the window."
+    },
+    "execution_reliability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Success rate of proposal execution (on-chain + off-chain)."
+    },
+    "participation_health": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Voter turnout, delegation activity, and proposal throughput combined."
+    },
+    "policy_compliance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Degree to which governance actions adhere to DAO policies."
+    },
+
+    "proposal_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of proposals in the measurement window."
+    },
+    "executed_proposals": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of proposals successfully executed."
+    },
+    "failed_executions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of proposals that failed during execution."
+    },
+
+    "governance_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Final computed governance score."
+    }
+  },
+
+  "required": [
+    "snapshot_id",
+    "timestamp",
+    "proposal_quality",
+    "execution_reliability",
+    "participation_health",
+    "policy_compliance",
+    "proposal_count",
+    "executed_proposals",
+    "failed_executions",
+    "governance_score"
+  ]
+}
