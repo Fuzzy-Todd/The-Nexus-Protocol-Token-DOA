@@ -1,0 +1,14 @@
+{
+	"0": {
+		"type": "LOCAL_WALLET",
+		"network": "TESTNET",
+		"public_key": "0x3E62509CBD74608f542eB006230B7C224e76B754",
+		"private_key": "0xd82aa1c4b7f2bfb44795b65d15a72ec7d1921db944677c71cb6b7ad5956c845a"
+	},
+	"1": {
+		"type": "LOCAL_WALLET",
+		"network": "TESTNET",
+		"public_key": "0x270bcEc7f089B9E24159b2574a50587F02818869",
+		"private_key": "0x27dc90495735ac34be21e34331b1d6a6faf7faed1745ee92c9223d89f79ec88b"
+	}
+}
